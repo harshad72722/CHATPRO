@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gemini AI Assistant - Voice + Text</title>
+<style>
+body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(to bottom, #e0eafc, #cfdef3); margin: 0; padding: 20px; }
+#chatbox { max-width: 700px; margin: auto; background: white; padding: 20px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); }
+h2 { text-align: center; color: #333; margin-bottom: 20px; }
+#messages { max-height: 70vh; overflow-y: auto; padding: 10px; }
+.message-wrapper { display: flex; margin: 12px 0; align-items: flex-end; }
+.message-wrapper.user { justify-content: flex-end; }
+.message-wrapper.bot { justify-content: flex-start; }
+.avatar { width: 35px; height: 35px; border-radius: 50%; background-color: #bbb; display: flex; align-items: center; justify-content: center; font-size: 18px; margin-right: 10px; }
+.message { max-width: 70%; padding: 12px 18px; border-radius: 20px; font-size: 15px; line-height: 1.4; position: relative; word-wrap: break-word; }
+.message.user { background: linear-gradient(to right, #4facfe, #00f2fe); color: white; border-bottom-right-radius: 2px; }
+.message.bot { background: linear-gradient(to right, #f0fdf4, #e6ffe6); color: #333; border-bottom-left-radius: 2px; }
+.timestamp { font-size: 11px; color: #555; margin-top: 4px; text-align: right; }
+#inputArea { display: flex; gap: 10px; margin-top: 15px; }
+input { flex: 1; padding: 12px; border-radius: 12px; border: 1px solid #ccc; font-size: 15px; }
+button { padding: 12px 18px; border-radius: 12px; border: none; background: #007bff; color: white; font-size: 15px; cursor: pointer; }
+button:hover { background: #0056b3; }
+/* Typing animation */
+.loading { font-size: 14px; color: #555; }
+.loading span { display: inline-block; animation: blink 1.4s infinite both; }
+.loading span:nth-child(2) { animation-delay: 0.2s; }
+.loading span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink { 0%,80%,100%{opacity:0;} 40%{opacity:1;} }
+</style>
+</head>
+<body>
+<div id="chatbox">
+  <h2>🤖 Gemini AI Assistant</h2>
+  <div id="messages"></div>
+  <div id="inputArea">
+    <input type="text" id="userInput" placeholder="Type your message..." />
+    <button onclick="sendMessage()">Send</button>
+    <button onclick="startVoice()">🎤</button>
+  </div>
+</div>
+
+<script>
+const API_KEY = "AIzaSyCx6mjJb_Gkhwxb6kAVvC1yU34NpVPQOy8";
+const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+
+let chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
+chatHistory.forEach(msg => addMessage(msg.text, msg.sender, false));
+
+// ===== Text & AI logic =====
+async function sendMessage(textInput = null) {
+  const input = document.getElementById("userInput");
+  const text = textInput ? textInput : input.value.trim();
+  if(!text) return;
+  if(!textInput) input.value = "";
+  addMessage(text, "user", true);
+
+  const loadingId = addLoading();
+
+  try {
+    const response = await fetch(`${API_URL}?key=${API_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text }] }] })
+    });
+    const data = await response.json();
+    removeLoading(loadingId);
+    const botReply = data.candidates?.[0]?.content?.parts?.[0]?.text || "⚠️ No response";
+    addMessage(botReply, "bot", true);
+    speak(botReply);
+  } catch(err) {
+    removeLoading(loadingId);
+    addMessage("❌ Error: "+err.message, "bot", true);
+  }
+}
+
+// ===== Add message to chatbox + history =====
+function addMessage(text, sender, saveHistory = true) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-wrapper " + sender;
+
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.innerText = sender==="user" ? "🧑" : "🤖";
+
+  const msg = document.createElement("div");
+  msg.className = "message " + sender;
+  msg.innerText = text;
+
+  const timestamp = document.createElement("div");
+  timestamp.className = "timestamp";
+  const now = new Date();
+  timestamp.innerText = now.getHours() + ":" + now.getMinutes().toString().padStart(2,"0");
+  msg.appendChild(timestamp);
+
+  if(sender==="user") { wrapper.appendChild(msg); wrapper.appendChild(avatar); }
+  else { wrapper.appendChild(avatar); wrapper.appendChild(msg); }
+
+  document.getElementById("messages").appendChild(wrapper);
+  document.getElementById("messages").scrollTop = document.getElementById("messages").scrollHeight;
+
+  if(saveHistory){
+    chatHistory.push({text, sender});
+    localStorage.setItem("chatHistory", JSON.stringify(chatHistory));
+  }
+}
+
+// ===== Loading animation =====
+function addLoading() {
+  const wrapper = document.createElement("div");
+  wrapper.className = "message-wrapper bot";
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.innerText = "🤖";
+  const msg = document.createElement("div");
+  msg.className = "message bot loading";
+  msg.innerHTML = "<span>.</span><span>.</span><span>.</span>";
+  msg.id = "loading-" + Date.now();
+  wrapper.appendChild(avatar);
+  wrapper.appendChild(msg);
+  document.getElementById("messages").appendChild(wrapper);
+  document.getElementById("messages").scrollTop = document.getElementById("messages").scrollHeight;
+  return msg.id;
+}
+function removeLoading(id) {
+  const el = document.getElementById(id);
+  if(el) el.parentElement.remove();
+}
+
+// ===== Text-to-Speech =====
+function speak(text) {
+  if('speechSynthesis' in window){
+    const msg = new SpeechSynthesisUtterance(text);
+    msg.lang = "hi-IN";
+    window.speechSynthesis.speak(msg);
+  }
+}
+
+// ===== Voice Recognition =====
+function startVoice() {
+  if(!('webkitSpeechRecognition' in window)){
+    alert("Voice recognition not supported in this browser!");
+    return;
+  }
+  const recognition = new webkitSpeechRecognition();
+  recognition.lang = "hi-IN";
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+
+  recognition.onresult = function(event){
+    const speechText = event.results[0][0].transcript;
+    sendMessage(speechText);
+  }
+  recognition.start();
+}
+</script>
+</body>
+</html>
